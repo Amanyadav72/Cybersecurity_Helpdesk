@@ -417,6 +417,41 @@ app.post('/auth/test-google-login', async (req, res) => {
   }
 });
 
+// Unified Google Sign-In Endpoint (Neon PostgreSQL persistence)
+app.post('/auth/google-signin', async (req, res) => {
+  const { email, name, profile_picture, google_id } = req.body;
+
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    return res.status(400).json({ detail: 'A valid Google email address is required.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = (name && typeof name === 'string' && name.trim()) ? name.trim() : cleanEmail.split('@')[0];
+  const cleanGoogleId = google_id || `google-id-${Buffer.from(cleanEmail).toString('base64').replace(/[^a-zA-Z0-9]/g, '')}`;
+  const defaultPicture = `https://ui-avatars.com/api/?name=${encodeURIComponent(cleanName)}&background=2563eb&color=fff&size=160`;
+  const cleanPicture = profile_picture || defaultPicture;
+
+  try {
+    const user = await upsertGoogleUser({
+      google_id: cleanGoogleId,
+      name: cleanName,
+      email: cleanEmail,
+      profile_picture: cleanPicture,
+    });
+
+    const token = generateSessionToken(user);
+    res.json({
+      success: true,
+      token,
+      user,
+      message: 'Signed in successfully with Google.',
+    });
+  } catch (err: any) {
+    console.error('Error in /auth/google-signin:', err);
+    res.status(500).json({ detail: `Database operation failed: ${err.message}` });
+  }
+});
+
 // --------------------------------------------------------------------------
 // Real Google OAuth 2.0 Endpoints
 // --------------------------------------------------------------------------

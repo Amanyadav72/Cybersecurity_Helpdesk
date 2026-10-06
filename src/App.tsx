@@ -31,7 +31,7 @@ export default function App() {
     if (authError) {
       let friendlyError = decodeURIComponent(authError);
       if (authError === 'google_credentials_missing') {
-        friendlyError = 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required in .env for actual Google sign-in.';
+        friendlyError = 'Please sign in with your Google account using the Google prompt.';
         setIsSignInOpen(true);
       }
       setNotification({ message: friendlyError, type: 'error' });
@@ -67,12 +67,7 @@ export default function App() {
   }, []);
 
   const handleOpenSignIn = () => {
-    // If Google OAuth credentials are fully configured, send directly to Google; otherwise open the credential guidance modal
-    if (systemStatus?.google_oauth.configured) {
-      api.initiateGoogleLogin();
-    } else {
-      setIsSignInOpen(true);
-    }
+    setIsSignInOpen(true);
   };
 
   const handleNavigate = (page: string) => {
@@ -104,28 +99,14 @@ export default function App() {
             </span>
             <span className="hidden sm:inline text-slate-400">|</span>
             <span className="hidden sm:inline text-slate-300">
-              Neon PostgreSQL & Google OAuth 2.0
+              Community Cyber Safety Helpdesk
             </span>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Live Neon & OAuth status badges */}
-            <button
-              onClick={() => setIsSignInOpen(true)}
-              className="text-[11px] flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
-              title="Click to view API & database keys"
-            >
-              <Database className="w-3 h-3 text-emerald-400" />
-              <span>
-                Neon DB:{' '}
-                <strong className={systemStatus?.neon_database.connected ? 'text-emerald-400' : 'text-amber-300'}>
-                  {systemStatus?.neon_database.connected ? 'Connected' : 'Config'}
-                </strong>
-              </span>
-            </button>
-
-            <span className="text-[11px] text-amber-300 bg-amber-950/60 border border-amber-800/80 px-2 py-0.5 rounded-sm">
-              Helpline: 1930
+            <span className="text-[11px] text-amber-300 bg-amber-950/60 border border-amber-800/80 px-2 py-0.5 rounded-sm flex items-center gap-1 font-medium">
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+              National Cyber Helpline: 1930
             </span>
 
             {!user && (
@@ -221,7 +202,7 @@ export default function App() {
           setUser(u);
           setCurrentPage('dashboard');
           setNotification({
-            message: `Connected to Neon PostgreSQL as ${u.name}!`,
+            message: `Welcome, ${u.name}! Signed in successfully with Google.`,
             type: 'success',
           });
         }}

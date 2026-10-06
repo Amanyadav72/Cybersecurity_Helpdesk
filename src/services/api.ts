@@ -136,6 +136,21 @@ export const api = {
     return res;
   },
 
+  // Authenticate user via Google (Neon PostgreSQL persistence)
+  async signInWithGoogle(params: {
+    email: string;
+    name?: string;
+    profile_picture?: string;
+    google_id?: string;
+  }): Promise<{ token: string; user: User }> {
+    const res = await apiRequest<{ token: string; user: User; message: string }>('/auth/google-signin', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    setStoredAuth(res.token, res.user);
+    return res;
+  },
+
   // Logout
   async logout(): Promise<void> {
     try {
