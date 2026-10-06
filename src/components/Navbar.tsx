@@ -24,6 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     ? [
         { id: 'home', label: 'Home', icon: Home },
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'profile', label: 'Profile', icon: UserCircle },
         { id: 'ask', label: 'Ask Question', icon: PlusCircle },
         { id: 'my-questions', label: 'My Questions', icon: HelpCircle },
         { id: 'safety-tips', label: 'Safety Tips', icon: BookOpen },
@@ -122,6 +123,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </span>
                     </div>
 
+                    <button
+                      onClick={() => handleNavClick('profile')}
+                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <UserCircle className="w-3.5 h-3.5 text-blue-600" />
+                      My Profile & Account
+                    </button>
                     <button
                       onClick={() => handleNavClick('dashboard')}
                       className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2"

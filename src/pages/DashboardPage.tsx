@@ -17,6 +17,7 @@ import {
   AlertCircle,
   RefreshCw,
   MessageSquare,
+  UserCircle,
 } from 'lucide-react';
 
 interface DashboardPageProps {
@@ -78,11 +79,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
 
-        {/* Action Button: "Ask a Question" */}
-        <div className="flex items-center gap-3 w-full md:w-auto">
+        {/* Action Buttons: "Ask a Question" and "View Profile" */}
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <button
+            onClick={() => onNavigate('profile')}
+            className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs sm:text-sm rounded-xl transition flex items-center justify-center gap-2"
+          >
+            <UserCircle className="w-4 h-4 text-blue-600" />
+            View Full Profile
+          </button>
           <button
             onClick={() => onNavigate('ask')}
-            className="w-full md:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm rounded-xl shadow-xs hover:shadow-sm transition flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs hover:shadow-sm transition flex items-center justify-center gap-2"
           >
             <PlusCircle className="w-4 h-4" />
             Ask a Question

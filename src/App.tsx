@@ -6,15 +6,29 @@ import { Footer } from './components/Footer';
 import { GoogleSignInModal } from './components/GoogleSignInModal';
 import { HomePage } from './pages/HomePage';
 import { DashboardPage } from './pages/DashboardPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { AskQuestionPage } from './pages/AskQuestionPage';
 import { MyQuestionsPage } from './pages/MyQuestionsPage';
 import { SafetyTipsPage } from './pages/SafetyTipsPage';
 import { AboutProjectPage } from './pages/AboutProjectPage';
 import { AlertCircle, CheckCircle2, ShieldCheck, Database, Key, X } from 'lucide-react';
 
+const getInitialPage = (): string => {
+  if (typeof window === 'undefined') return 'home';
+  const path = window.location.pathname.replace(/^\//, '').split('?')[0];
+  if (['dashboard', 'profile', 'ask', 'my-questions', 'safety-tips', 'about'].includes(path)) {
+    return path;
+  }
+  const searchParams = new URLSearchParams(window.location.search);
+  if (searchParams.get('token')) {
+    return 'dashboard';
+  }
+  return 'home';
+};
+
 export default function App() {
-  const [user, setUser] = useState<User | null>(getStoredUser());
-  const [currentPage, setCurrentPage] = useState<string>('home');
+  const [user, setUser] = useState<User | null>(() => getStoredUser());
+  const [currentPage, setCurrentPage] = useState<string>(getInitialPage);
   const [isSignInOpen, setIsSignInOpen] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -37,6 +51,7 @@ export default function App() {
             message: `Welcome, ${authedUser.name}! Signed in with Google.`,
             type: 'success',
           });
+          window.history.replaceState({}, document.title, '/dashboard');
         }
       } else if (event.data?.type === 'GOOGLE_AUTH_ERROR') {
         const msg = decodeURIComponent(event.data.error || 'Authentication was cancelled.');
@@ -57,23 +72,30 @@ export default function App() {
       setNotification({ message: friendlyError, type: 'error' });
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (token) {
-      // Returned from actual Google OAuth callback
-      api.checkAuth().then((authenticatedUser) => {
+      const cleanToken = token.trim().replace(/^"+|"+$/g, '');
+      // Store token immediately in localStorage
+      localStorage.setItem('csh_auth_token', cleanToken);
+
+      // Verify with backend /auth/me and retrieve user data
+      api.checkAuth(cleanToken).then((authenticatedUser) => {
         if (authenticatedUser) {
           setUser(authenticatedUser);
           setCurrentPage('dashboard');
-          setNotification({ message: `Welcome, ${authenticatedUser.name}! Signed in via Google OAuth.`, type: 'success' });
+          setNotification({
+            message: `Welcome, ${authenticatedUser.name}! Signed in successfully with Google.`,
+            type: 'success',
+          });
         }
       });
-      window.history.replaceState({}, document.title, window.location.pathname);
+      window.history.replaceState({}, document.title, '/dashboard');
+    } else {
+      // Normal load: verify and synchronize active session with backend
+      api.checkAuth().then((authenticatedUser) => {
+        if (authenticatedUser) {
+          setUser(authenticatedUser);
+        }
+      });
     }
-
-    // Verify session with backend
-    api.checkAuth().then((authenticatedUser) => {
-      if (authenticatedUser) {
-        setUser(authenticatedUser);
-      }
-    });
 
     return () => {
       window.removeEventListener('message', handleOAuthMessage);
@@ -81,17 +103,21 @@ export default function App() {
   }, []);
 
   const handleOpenSignIn = () => {
-    // Directly initiate Google OAuth
-    api.initiateGoogleLogin();
+    setIsSignInOpen(true);
   };
 
   const handleNavigate = (page: string) => {
     // If attempting to access authenticated pages without user, trigger sign in
-    if ((page === 'dashboard' || page === 'my-questions' || page === 'ask') && !user) {
+    if ((page === 'dashboard' || page === 'profile' || page === 'my-questions' || page === 'ask') && !user) {
       handleOpenSignIn();
       return;
     }
     setCurrentPage(page);
+    try {
+      window.history.pushState({}, document.title, page === 'home' ? '/' : `/${page}`);
+    } catch {
+      // ignore
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -99,6 +125,11 @@ export default function App() {
     await api.logout();
     setUser(null);
     setCurrentPage('home');
+    try {
+      window.history.pushState({}, document.title, '/');
+    } catch {
+      // ignore
+    }
     setNotification({ message: 'You have been logged out safely.', type: 'info' });
   };
 
@@ -186,6 +217,14 @@ export default function App() {
         )}
         {currentPage === 'dashboard' && user && (
           <DashboardPage user={user} onNavigate={handleNavigate} />
+        )}
+        {currentPage === 'profile' && user && (
+          <ProfilePage
+            user={user}
+            onNavigate={handleNavigate}
+            onLogout={handleLogout}
+            onUserRefresh={(updated) => setUser(updated)}
+          />
         )}
         {currentPage === 'ask' && (
           <AskQuestionPage

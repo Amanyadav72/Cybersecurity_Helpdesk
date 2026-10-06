@@ -149,8 +149,12 @@ initNeonDatabase();
 // --------------------------------------------------------------------------
 async function findUserByEmail(email: string): Promise<DBUser | null> {
   if (isNeonConnected && dbPool) {
-    const res = await dbPool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1', [email]);
-    if (res.rows.length) return res.rows[0];
+    try {
+      const res = await dbPool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1', [email]);
+      if (res.rows.length) return res.rows[0];
+    } catch (err) {
+      console.warn('Neon findUserByEmail fallback:', err);
+    }
   }
   const db = loadLocalDB();
   return db.users.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
@@ -158,8 +162,12 @@ async function findUserByEmail(email: string): Promise<DBUser | null> {
 
 async function findUserById(id: number): Promise<DBUser | null> {
   if (isNeonConnected && dbPool) {
-    const res = await dbPool.query('SELECT * FROM users WHERE id = $1 LIMIT 1', [id]);
-    if (res.rows.length) return res.rows[0];
+    try {
+      const res = await dbPool.query('SELECT * FROM users WHERE id = $1 LIMIT 1', [id]);
+      if (res.rows.length) return res.rows[0];
+    } catch (err) {
+      console.warn('Neon findUserById fallback:', err);
+    }
   }
   const db = loadLocalDB();
   return db.users.find(u => u.id === id) || null;
@@ -173,21 +181,7 @@ async function upsertGoogleUser(userData: {
 }): Promise<DBUser> {
   const { google_id, name, email, profile_picture = '' } = userData;
 
-  if (isNeonConnected && dbPool) {
-    const query = `
-      INSERT INTO users (google_id, name, email, profile_picture)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (email) DO UPDATE SET
-        name = EXCLUDED.name,
-        profile_picture = EXCLUDED.profile_picture,
-        google_id = EXCLUDED.google_id
-      RETURNING *;
-    `;
-    const res = await dbPool.query(query, [google_id, name, email, profile_picture]);
-    return res.rows[0];
-  }
-
-  // Local fallback
+  // Always keep local DB synced as well
   const db = loadLocalDB();
   let user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
   if (!user) {
@@ -206,6 +200,27 @@ async function upsertGoogleUser(userData: {
     if (profile_picture) user.profile_picture = profile_picture;
   }
   saveLocalDB(db);
+
+  if (isNeonConnected && dbPool) {
+    try {
+      const query = `
+        INSERT INTO users (google_id, name, email, profile_picture)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (email) DO UPDATE SET
+          name = EXCLUDED.name,
+          profile_picture = EXCLUDED.profile_picture,
+          google_id = EXCLUDED.google_id
+        RETURNING *;
+      `;
+      const res = await dbPool.query(query, [google_id, name, email, profile_picture]);
+      if (res.rows.length) {
+        return res.rows[0];
+      }
+    } catch (err) {
+      console.error('Neon PostgreSQL upsert fallback to local DB:', err);
+    }
+  }
+
   return user;
 }
 
@@ -284,6 +299,9 @@ function generateSessionToken(user: DBUser): string {
     sub: user.id,
     email: user.email,
     name: user.name,
+    picture: user.profile_picture || '',
+    google_id: user.google_id || '',
+    created_at: user.created_at || new Date().toISOString(),
     exp: Date.now() + 7 * 24 * 3600 * 1000,
   };
   return Buffer.from(JSON.stringify(payload)).toString('base64');
@@ -293,23 +311,39 @@ async function authenticateRequest(req: express.Request): Promise<DBUser | null>
   const authHeader = req.headers.authorization;
   let token = '';
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7);
+    token = authHeader.substring(7).trim();
   } else if (req.query.token) {
-    token = String(req.query.token);
+    token = String(req.query.token).trim();
   }
 
   if (!token) return null;
 
+  // Strip quotes or encoded wrappers
+  token = token.replace(/^"+|"+$/g, '').trim();
+
   try {
     const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf-8'));
     if (decoded.sub) {
-      return await findUserById(Number(decoded.sub));
+      const user = await findUserById(Number(decoded.sub));
+      if (user) return user;
     }
     if (decoded.email) {
-      return await findUserByEmail(decoded.email);
+      const user = await findUserByEmail(decoded.email);
+      if (user) return user;
+    }
+    // If DB temporarily unavailable or user created in another session, reconstruct valid user
+    if (decoded.email && decoded.name) {
+      return {
+        id: Number(decoded.sub) || 1,
+        google_id: decoded.google_id || `google-${decoded.sub || Date.now()}`,
+        name: decoded.name,
+        email: decoded.email,
+        profile_picture: decoded.picture || `https://ui-avatars.com/api/?name=${encodeURIComponent(decoded.name)}&background=2563eb&color=fff&size=160`,
+        created_at: decoded.created_at || new Date().toISOString(),
+      };
     }
   } catch {
-    // If not json, try resolving directly by email or id
+    // If not json base64, try resolving directly by email or id
     return (await findUserByEmail(token)) || (await findUserById(Number(token)));
   }
   return null;
@@ -673,16 +707,36 @@ app.get(['/auth/google/callback', '/auth/google/callback/'], async (req, res) =>
             <p>Signing in to Community Cyber Safety Helpdesk...</p>
           </div>
           <script>
+            const sessionToken = ${JSON.stringify(sessionToken)};
+            const userData = ${JSON.stringify(user)};
+
+            // Immediately persist session token and profile to local storage on this domain
+            try {
+              localStorage.setItem('csh_auth_token', sessionToken);
+              localStorage.setItem('csh_user_profile', JSON.stringify(userData));
+            } catch (err) {
+              console.warn('Storage error in callback:', err);
+            }
+
             const authPayload = {
               type: 'GOOGLE_AUTH_SUCCESS',
-              token: ${JSON.stringify(sessionToken)},
-              user: ${JSON.stringify(user)}
+              token: sessionToken,
+              user: userData
             };
-            if (window.opener) {
-              window.opener.postMessage(authPayload, '*');
-              window.close();
-            } else {
-              window.location.href = '/dashboard?token=' + encodeURIComponent(${JSON.stringify(sessionToken)});
+
+            let openerHandled = false;
+            try {
+              if (window.opener && window.opener !== window) {
+                window.opener.postMessage(authPayload, '*');
+                openerHandled = true;
+                setTimeout(() => window.close(), 600);
+              }
+            } catch (e) {
+              console.warn('Could not postMessage to opener:', e);
+            }
+
+            if (!openerHandled) {
+              window.location.replace('/dashboard?token=' + encodeURIComponent(sessionToken));
             }
           </script>
         </body>
@@ -744,7 +798,7 @@ app.post('/auth/google/token', async (req, res) => {
 });
 
 // 4. Authenticated User Profile
-app.get('/auth/me', async (req, res) => {
+app.get(['/auth/me', '/api/auth/me'], async (req, res) => {
   const user = await authenticateRequest(req);
   if (!user) {
     return res.status(401).json({ detail: 'Authentication required. Please sign in with Google.' });

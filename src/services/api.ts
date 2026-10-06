@@ -28,6 +28,28 @@ export function getStoredUser(): User | null {
   }
 }
 
+export function parseTokenUser(token: string): User | null {
+  try {
+    const cleanToken = token.trim().replace(/^"+|"+$/g, '');
+    const decoded = JSON.parse(atob(cleanToken));
+    if (decoded && (decoded.email || decoded.name || decoded.sub)) {
+      const email = decoded.email || '';
+      const name = decoded.name || (email ? email.split('@')[0] : 'Community Member');
+      return {
+        id: Number(decoded.sub) || 1,
+        google_id: decoded.google_id || `google-${decoded.sub || Date.now()}`,
+        name,
+        email,
+        profile_picture: decoded.picture || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2563eb&color=fff&size=160`,
+        created_at: decoded.created_at || new Date().toISOString(),
+      };
+    }
+  } catch {
+    // not valid base64 json
+  }
+  return null;
+}
+
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
   const headers: Record<string, string> = {
@@ -79,16 +101,45 @@ export interface SystemStatus {
 }
 
 export const api = {
-  // Check active user session
-  async checkAuth(): Promise<User | null> {
-    const token = getStoredToken();
+  // Check active user session and retrieve fresh user profile
+  async checkAuth(tokenOverride?: string): Promise<User | null> {
+    let token = tokenOverride || getStoredToken();
     if (!token) return null;
+    token = token.trim().replace(/^"+|"+$/g, '');
+
     try {
-      const user = await apiRequest<User>('/auth/me');
-      localStorage.setItem(USER_KEY, JSON.stringify(user));
-      return user;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      };
+      const response = await fetch('/auth/me', { headers });
+      if (response.ok) {
+        const user: User = await response.json();
+        setStoredAuth(token, user);
+        return user;
+      }
+
+      // If server returned error but token has valid payload, use fallback
+      const fallbackUser = parseTokenUser(token);
+      if (fallbackUser) {
+        setStoredAuth(token, fallbackUser);
+        return fallbackUser;
+      }
+
+      if (!tokenOverride) {
+        clearStoredAuth();
+      }
+      return null;
     } catch {
-      clearStoredAuth();
+      // Offline/network glitch fallback
+      const fallbackUser = parseTokenUser(token) || getStoredUser();
+      if (fallbackUser) {
+        setStoredAuth(token, fallbackUser);
+        return fallbackUser;
+      }
+      if (!tokenOverride) {
+        clearStoredAuth();
+      }
       return null;
     }
   },
