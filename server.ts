@@ -469,11 +469,11 @@ app.post('/auth/google-signin', async (req, res) => {
 
 // 0. API Endpoint to retrieve the Google OAuth authorization URL (for popup / direct redirect)
 app.get(['/api/auth/google-url', '/auth/google/url'], (req, res) => {
-  const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
-  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
+  const googleClientId =
+    process.env.GOOGLE_CLIENT_ID || '934619565539-rum4ab9b3nb7hvhinb5tqvuo9rhaoq7b.apps.googleusercontent.com';
 
-  if (!googleClientId || !googleClientSecret) {
-    return res.status(500).json({ error: 'Google OAuth credentials not configured' });
+  if (!googleClientId) {
+    return res.status(500).json({ error: 'Google Client ID not configured' });
   }
 
   const rawOrigin = (req.query.origin ? String(req.query.origin) : null)
@@ -501,11 +501,11 @@ app.get(['/api/auth/google-url', '/auth/google/url'], (req, res) => {
 
 // 1. Initiate Google OAuth Login Redirect
 app.get('/auth/google/login', (req, res) => {
-  const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
-  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
+  const googleClientId =
+    process.env.GOOGLE_CLIENT_ID || '934619565539-rum4ab9b3nb7hvhinb5tqvuo9rhaoq7b.apps.googleusercontent.com';
 
-  if (!googleClientId || !googleClientSecret) {
-    return res.redirect('/?auth_error=google_credentials_missing');
+  if (!googleClientId) {
+    return res.redirect('/?auth_error=' + encodeURIComponent('Google Client ID is missing.'));
   }
 
   // Determine external URL for callback
@@ -556,11 +556,30 @@ app.get(['/auth/google/callback', '/auth/google/callback/'], async (req, res) =>
     `);
   }
 
-  const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
+  const googleClientId =
+    process.env.GOOGLE_CLIENT_ID || '934619565539-rum4ab9b3nb7hvhinb5tqvuo9rhaoq7b.apps.googleusercontent.com';
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
 
-  if (!googleClientId || !googleClientSecret) {
-    return res.redirect('/?auth_error=google_credentials_missing');
+  if (!googleClientSecret) {
+    const errorMsg = encodeURIComponent('GOOGLE_CLIENT_SECRET is missing. Please add GOOGLE_CLIENT_SECRET to your environment variables.');
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Configuration Needed</title></head>
+        <body style="font-family:sans-serif;padding:30px;text-align:center;">
+          <h3>GOOGLE_CLIENT_SECRET is not configured</h3>
+          <p>Please configure GOOGLE_CLIENT_SECRET in your server environment variables.</p>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ type: 'GOOGLE_AUTH_ERROR', error: '${errorMsg}' }, '*');
+              setTimeout(() => window.close(), 2500);
+            } else {
+              window.location.href = '/?auth_error=${errorMsg}';
+            }
+          </script>
+        </body>
+      </html>
+    `);
   }
 
   try {
