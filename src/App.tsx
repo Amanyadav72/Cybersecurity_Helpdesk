@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { User } from './types';
-import { api, getStoredUser, setStoredAuth } from './services/api';
+import { api, getStoredUser, setStoredAuth, SystemStatus } from './services/api';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { GoogleSignInModal } from './components/GoogleSignInModal';
@@ -10,25 +10,34 @@ import { AskQuestionPage } from './pages/AskQuestionPage';
 import { MyQuestionsPage } from './pages/MyQuestionsPage';
 import { SafetyTipsPage } from './pages/SafetyTipsPage';
 import { AboutProjectPage } from './pages/AboutProjectPage';
-import { AlertCircle, CheckCircle2, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ShieldCheck, Database, Key, X } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(getStoredUser());
   const [currentPage, setCurrentPage] = useState<string>('home');
   const [isSignInOpen, setIsSignInOpen] = useState(false);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  // Check initial authentication and URL params on load
+  // Check initial authentication, system status, and URL params on load
   useEffect(() => {
+    // Fetch live infrastructure status (Neon DB & Google OAuth)
+    api.getSystemStatus().then(setSystemStatus).catch(() => {});
+
     const searchParams = new URLSearchParams(window.location.search);
     const token = searchParams.get('token');
     const authError = searchParams.get('auth_error');
 
     if (authError) {
-      setNotification({ message: decodeURIComponent(authError), type: 'error' });
+      let friendlyError = decodeURIComponent(authError);
+      if (authError === 'google_credentials_missing') {
+        friendlyError = 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required in .env for actual Google sign-in.';
+        setIsSignInOpen(true);
+      }
+      setNotification({ message: friendlyError, type: 'error' });
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (token) {
-      // Returned from Google OAuth callback
+      // Returned from actual Google OAuth callback
       try {
         const decoded = JSON.parse(atob(token));
         const dummyUser: User = {
@@ -42,7 +51,7 @@ export default function App() {
         setStoredAuth(token, dummyUser);
         setUser(dummyUser);
         setCurrentPage('dashboard');
-        setNotification({ message: `Welcome back, ${dummyUser.name}! Signed in via Google.`, type: 'success' });
+        setNotification({ message: `Welcome! Signed in via Google OAuth.`, type: 'success' });
       } catch {
         // Fallback
       }
@@ -57,23 +66,23 @@ export default function App() {
     });
   }, []);
 
-  const handleNavigate = (page: string) => {
-    // If attempting to access authenticated pages without user, open sign in modal
-    if ((page === 'dashboard' || page === 'my-questions' || page === 'ask') && !user) {
+  const handleOpenSignIn = () => {
+    // If Google OAuth credentials are fully configured, send directly to Google; otherwise open the credential guidance modal
+    if (systemStatus?.google_oauth.configured) {
+      api.initiateGoogleLogin();
+    } else {
       setIsSignInOpen(true);
+    }
+  };
+
+  const handleNavigate = (page: string) => {
+    // If attempting to access authenticated pages without user, trigger sign in
+    if ((page === 'dashboard' || page === 'my-questions' || page === 'ask') && !user) {
+      handleOpenSignIn();
       return;
     }
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleSignInSuccess = (authenticatedUser: User) => {
-    setUser(authenticatedUser);
-    setCurrentPage('dashboard');
-    setNotification({
-      message: `Signed in successfully as ${authenticatedUser.name}!`,
-      type: 'success',
-    });
   };
 
   const handleLogout = async () => {
@@ -95,17 +104,33 @@ export default function App() {
             </span>
             <span className="hidden sm:inline text-slate-400">|</span>
             <span className="hidden sm:inline text-slate-300">
-              Community Helpdesk for Cyber Safety Queries
+              Neon PostgreSQL & Google OAuth 2.0
             </span>
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Live Neon & OAuth status badges */}
+            <button
+              onClick={() => setIsSignInOpen(true)}
+              className="text-[11px] flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              title="Click to view API & database keys"
+            >
+              <Database className="w-3 h-3 text-emerald-400" />
+              <span>
+                Neon DB:{' '}
+                <strong className={systemStatus?.neon_database.connected ? 'text-emerald-400' : 'text-amber-300'}>
+                  {systemStatus?.neon_database.connected ? 'Connected' : 'Config'}
+                </strong>
+              </span>
+            </button>
+
             <span className="text-[11px] text-amber-300 bg-amber-950/60 border border-amber-800/80 px-2 py-0.5 rounded-sm">
               Helpline: 1930
             </span>
+
             {!user && (
               <button
-                onClick={() => setIsSignInOpen(true)}
+                onClick={handleOpenSignIn}
                 className="text-xs text-blue-400 hover:text-blue-300 underline font-medium"
               >
                 Sign in with Google &rarr;
@@ -120,7 +145,7 @@ export default function App() {
         user={user}
         currentPage={currentPage}
         onNavigate={handleNavigate}
-        onOpenSignIn={() => setIsSignInOpen(true)}
+        onOpenSignIn={handleOpenSignIn}
         onLogout={handleLogout}
       />
 
@@ -160,7 +185,7 @@ export default function App() {
           <HomePage
             user={user}
             onNavigate={handleNavigate}
-            onOpenSignIn={() => setIsSignInOpen(true)}
+            onOpenSignIn={handleOpenSignIn}
           />
         )}
         {currentPage === 'dashboard' && user && (
@@ -170,14 +195,14 @@ export default function App() {
           <AskQuestionPage
             user={user}
             onNavigate={handleNavigate}
-            onOpenSignIn={() => setIsSignInOpen(true)}
+            onOpenSignIn={handleOpenSignIn}
           />
         )}
         {currentPage === 'my-questions' && (
           <MyQuestionsPage
             user={user}
             onNavigate={handleNavigate}
-            onOpenSignIn={() => setIsSignInOpen(true)}
+            onOpenSignIn={handleOpenSignIn}
           />
         )}
         {currentPage === 'safety-tips' && <SafetyTipsPage />}
@@ -187,11 +212,19 @@ export default function App() {
       {/* Footer */}
       <Footer onNavigate={handleNavigate} />
 
-      {/* Google Sign In Modal */}
+      {/* Google OAuth & Secrets Setup Modal */}
       <GoogleSignInModal
         isOpen={isSignInOpen}
         onClose={() => setIsSignInOpen(false)}
-        onSuccess={handleSignInSuccess}
+        systemStatus={systemStatus}
+        onLoginSuccess={(u) => {
+          setUser(u);
+          setCurrentPage('dashboard');
+          setNotification({
+            message: `Connected to Neon PostgreSQL as ${u.name}!`,
+            type: 'success',
+          });
+        }}
       />
     </div>
   );

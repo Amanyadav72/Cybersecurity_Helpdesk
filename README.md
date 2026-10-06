@@ -2,6 +2,8 @@
 **B.Sc. IT Semester V Community Engagement Project**
 
 **Topic:** Community Helpdesk for Cyber Safety Queries  
+**Database:** Neon PostgreSQL Database (Serverless)  
+**Authentication:** Actual Google OAuth 2.0 (OpenID Connect)  
 **Context:** Educational & Awareness Project (Not a hacking or security testing platform)
 
 ---
@@ -12,7 +14,8 @@ The **Community Cyber Safety Helpdesk** is a clean, accessible, beginner-friendl
 
 ### Key Objectives
 * Provide a safe, non-judgmental space for community members to ask cyber-safety questions.
-* Enable seamless sign-in using Google accounts (OAuth 2.0) with zero password management hassles.
+* Enable seamless sign-in using actual Google accounts (OAuth 2.0) with zero password management hassles.
+* Store data securely in a **Neon PostgreSQL cloud database** with connection pooling.
 * Deliver easy-to-understand, verified safety guidance provided by student volunteers.
 * Educate community members with actionable safety tips on UPI, Phishing, Passwords, and Social Media.
 
@@ -24,8 +27,40 @@ The **Community Cyber Safety Helpdesk** is a clean, accessible, beginner-friendl
 |---|---|
 | **Frontend** | React 19, Vite, Tailwind CSS, Lucide Icons |
 | **Backend** | Python 3, FastAPI, Pydantic, Uvicorn |
-| **Database** | SQLite with SQLAlchemy ORM |
-| **Authentication** | Google OAuth 2.0 (OpenID Connect / JWT Session) |
+| **Cloud Database** | **Neon PostgreSQL** (`@neondatabase/serverless` / `pg` / `psycopg2-binary`) |
+| **Authentication** | **Actual Google OAuth 2.0** (OpenID Connect `openid email profile`) |
+
+---
+
+## 🔑 Required API Keys & Secrets
+
+To run the application with full cloud database and Google authentication, configure these environment variables:
+
+| Variable | Description | Where to Get It |
+|---|---|---|
+| **`NEON_DATABASE_URL`** | Neon PostgreSQL connection string with SSL | [Neon Console](https://console.neon.tech) &rarr; Project &rarr; Connection Details |
+| **`GOOGLE_CLIENT_ID`** | Google OAuth 2.0 Web Client ID | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) |
+| **`GOOGLE_CLIENT_SECRET`** | Google OAuth 2.0 Client Secret | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) |
+| **`SECRET_KEY`** | Secret key for signing JWT user sessions | Generate with `openssl rand -hex 32` or any long random string |
+| **`FRONTEND_URL`** | URL of the frontend application | `http://localhost:3000` (or your production URL) |
+
+### Sample `.env` file:
+```env
+# Neon PostgreSQL Connection String (from https://console.neon.tech)
+NEON_DATABASE_URL="postgresql://neondb_owner:YOUR_PASSWORD@ep-sample-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+DATABASE_URL="postgresql://neondb_owner:YOUR_PASSWORD@ep-sample-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
+# Google OAuth 2.0 Credentials (from https://console.cloud.google.com)
+GOOGLE_CLIENT_ID="1234567890-abcdefg123456.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="GOCSPX-yourSecretKeyHere"
+
+# JWT Session Secret
+SECRET_KEY="super-secret-key-change-this-for-production"
+
+# Application URLs
+FRONTEND_URL="http://localhost:3000"
+APP_URL="http://localhost:3000"
+```
 
 ---
 
@@ -37,23 +72,23 @@ community-cyber-safety-helpdesk/
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── main.py                # FastAPI application entry & CORS
-│   │   ├── database.py            # SQLite engine & SQLAlchemy Session
+│   │   ├── database.py            # Neon PostgreSQL connection & SQLAlchemy Session
 │   │   ├── models.py              # User and Question SQLAlchemy models
 │   │   ├── schemas.py             # Pydantic validation models
-│   │   ├── auth.py                # Google OAuth & JWT token verification
+│   │   ├── auth.py                # Google OAuth token exchange & JWT verification
 │   │   └── routes/
-│   │       ├── auth.py            # /auth/google/login, /auth/me, /auth/logout
+│   │       ├── auth.py            # /auth/google/login, /auth/google/callback, /auth/me
 │   │       └── questions.py       # /api/questions (CRUD & Isolation)
 │   ├── .env.example               # Backend environment variables template
-│   ├── requirements.txt           # Python backend dependencies
+│   ├── requirements.txt           # Python backend dependencies (including psycopg2-binary)
 │   └── README.md                  # Backend-specific instructions
 │
 ├── src/                            # React Frontend
 │   ├── components/
 │   │   ├── Navbar.tsx             # Responsive navigation with Google profile
 │   │   ├── Footer.tsx             # Helplines (1930) & project disclaimer
-│   │   ├── GoogleSignInModal.tsx  # Google Sign-In & 1-click viva demo selector
-│   │   └── VolunteerResponseModal.tsx # Demo responder mechanism for evaluation
+│   │   ├── GoogleSignInModal.tsx  # Direct Google OAuth button & secrets status
+│   │   └── VolunteerResponseModal.tsx # Volunteer responder modal for viva evaluation
 │   ├── pages/
 │   │   ├── HomePage.tsx           # Hero, mission, core safety tips (OTPs, links, 2FA)
 │   │   ├── DashboardPage.tsx      # Profile card, question counters, recent items
@@ -67,7 +102,7 @@ community-cyber-safety-helpdesk/
 │   ├── App.tsx                    # Main layout & page routing
 │   └── main.tsx                   # React root entry point
 │
-├── server.ts                       # Integrated Node/Express server for dev preview
+├── server.ts                       # Integrated Node/Express server with Neon pg pool
 ├── package.json                    # Frontend dependencies & scripts
 ├── tsconfig.json                   # TypeScript configuration
 ├── vite.config.ts                  # Vite build tool configuration
@@ -76,202 +111,130 @@ community-cyber-safety-helpdesk/
 
 ---
 
-## 🚀 Step-by-Step Installation & Running Guide
+## 🚀 Step-by-Step Setup Guide
 
-### 1. Prerequisites
-* **Node.js** (v18 or higher)
-* **Python** (v3.10 or higher)
-* **Google Cloud Console account** (Free)
+### 1. How to Set Up Neon PostgreSQL Database
+
+1. Sign up for free at [https://neon.tech](https://neon.tech).
+2. Click **Create Project** &rarr; Name it `cyber-safety-helpdesk`.
+3. In the project dashboard under **Connection details**:
+   * Select **PostgreSQL** or **Pooled connection**.
+   * Copy the connection string. It looks like:
+     ```text
+     postgresql://neondb_owner:npg_xxxx@ep-cool-forest-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require
+     ```
+4. Paste this URL into your `.env` file as `NEON_DATABASE_URL` (and `DATABASE_URL`).
+5. Tables (`users` and `questions`) are automatically created when the server boots!
 
 ---
 
-### 2. How to Create Google OAuth 2.0 Credentials
+### 2. How to Create Actual Google OAuth 2.0 Credentials
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a new project named **`Cyber Safety Helpdesk`**.
 3. In the sidebar, go to **APIs & Services** &rarr; **OAuth consent screen**:
-   * Select **External** and click **Create**.
+   * Select **External** &rarr; Click **Create**.
    * App name: `Community Cyber Safety Helpdesk`
    * User support email: Select your email.
    * Developer contact information: Enter your email.
-   * Click **Save and Continue**.
-   * Under **Scopes**, add `openid`, `email`, and `profile`.
-   * Under **Test users**, add your Gmail address (e.g., `yourname@gmail.com`).
+   * Scopes: Add `openid`, `email`, and `profile`.
+   * Test users: Add your Gmail address (e.g., `amanyadavabhay@gmail.com`).
 4. In the sidebar, go to **APIs & Services** &rarr; **Credentials**:
    * Click **+ Create Credentials** &rarr; **OAuth client ID**.
    * Application type: **Web application**.
    * Name: `Cyber Safety Web Client`.
    * **Authorized JavaScript origins**:
      * `http://localhost:3000`
-     * `http://localhost:5173`
+     * (And your production domain URL if deployed)
    * **Authorized redirect URIs**:
-     * `http://localhost:8000/auth/google/callback`
      * `http://localhost:3000/auth/google/callback`
+     * `http://localhost:8000/auth/google/callback`
    * Click **Create**.
-5. Copy your **Client ID** and **Client Secret**.
+5. Copy your **Client ID** and **Client Secret** into your `.env` file:
+   * `GOOGLE_CLIENT_ID="..."`
+   * `GOOGLE_CLIENT_SECRET="..."`
 
 ---
 
-### 3. Backend Setup (FastAPI & SQLite)
+### 3. Running the Application
 
-1. Open your terminal and navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
+#### Option A: Running with Vite & Integrated Node/Express Server
+```bash
+npm install
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-2. Create a Python virtual environment:
-   ```bash
-   # On macOS / Linux
-   python3 -m venv venv
-   source venv/bin/activate
-
-   # On Windows
-   python -m venv venv
-   venv\Scripts\activate
-   ```
-
-3. Install required Python packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Configure environment variables:
-   * Copy `.env.example` to `.env`:
-     ```bash
-     cp .env.example .env
-     ```
-   * Open `.env` and fill in your Google credentials:
-     ```env
-     GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
-     GOOGLE_CLIENT_SECRET="your-google-client-secret"
-     SECRET_KEY="generate-a-random-32-byte-secret-key"
-     FRONTEND_URL="http://localhost:3000"
-     BACKEND_PORT=8000
-     DATABASE_URL="sqlite:///./cyber_safety.db"
-     ```
-
-5. Run the FastAPI backend:
-   ```bash
-   uvicorn app.main:app --reload --port 8000
-   ```
-   * The backend will run at: `http://localhost:8000`
-   * Interactive Swagger API documentation: `http://localhost:8000/docs`
-   * SQLite database `cyber_safety.db` is created automatically on startup!
+#### Option B: Running the Python FastAPI Backend Separately
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env      # Add your NEON_DATABASE_URL & Google credentials
+uvicorn app.main:app --reload --port 8000
+```
+FastAPI interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
-### 4. Frontend Setup (React & Vite)
-
-1. Open a new terminal in the project root directory:
-   ```bash
-   npm install
-   ```
-
-2. Start the development server:
-   ```bash
-   npm run dev
-   ```
-
-3. Open your browser and navigate to:
-   ```text
-   http://localhost:3000
-   ```
-
----
-
-## 🔐 How the Authentication Flow Works
+## 🔐 How Actual Google OAuth 2.0 Authentication Works
 
 ```text
 [ Community Member ]
        │
        ▼ (Clicks "Sign in with Google")
-[ React Frontend ] ──────────► [ FastAPI Backend: GET /auth/google/login ]
+[ React Frontend ] ──────────► [ Backend: GET /auth/google/login ]
                                       │
                                       ▼
                            [ Google OAuth Consent Screen ]
+                             (accounts.google.com)
                                       │
-                                      ▼ (User Approves)
-[ React Frontend ] ◄────────── [ FastAPI: GET /auth/google/callback ]
-       │                        - Exchanges auth code for Google Access Token
-       │                        - Fetches user profile (name, email, picture)
-       │                        - Finds or creates user in SQLite database
-       │                        - Issues signed JWT session token
+                                      ▼ (User selects Google Account)
+[ React Frontend ] ◄────────── [ Backend: GET /auth/google/callback ]
+       │                        1. Exchanges code for Google access token
+       │                        2. Fetches Google profile (id, name, email, avatar)
+       │                        3. Saves or updates user in Neon PostgreSQL
+       │                        4. Issues signed JWT session token
        ▼
 [ Dashboard Page ]
- - Reads authenticated session via GET /auth/me
- - Displays user's Google name, email, profile picture
+ - Reads user profile via GET /auth/me
+ - Displays authenticated Google profile name, email, picture
 ```
-
-1. **User clicks "Sign in with Google"** on the home page or navbar.
-2. The user is redirected to the Google authentication consent page.
-3. Upon approval, Google redirects back to `/auth/google/callback` with an authorization code.
-4. FastAPI exchanges the code with Google's token endpoint (`https://oauth2.googleapis.com/token`).
-5. FastAPI fetches the user's Google identity (`https://www.googleapis.com/oauth2/v3/userinfo`).
-6. FastAPI creates or retrieves the user record in SQLite.
-7. A signed JWT token is issued and set in a secure cookie or passed to the React frontend.
-8. React stores the session and redirects the user directly to the **Dashboard**.
 
 ---
 
-## 🗄️ How the Database Works (SQLite + SQLAlchemy)
+## 🗄️ Neon PostgreSQL Database Schema
 
-The database uses SQLite for simplicity, zero maintenance, and portability. It consists of two tables:
+```sql
+-- Users Table
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  google_id VARCHAR(255) UNIQUE NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  profile_picture VARCHAR(1024),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-### 1. `users` Table
-Stores registered community members authenticated via Google:
-* `id` (INTEGER, Primary Key)
-* `google_id` (VARCHAR(255), Unique, Indexed)
-* `name` (VARCHAR(255))
-* `email` (VARCHAR(255), Unique, Indexed)
-* `profile_picture` (VARCHAR(1024), Nullable)
-* `created_at` (DATETIME)
-
-### 2. `questions` Table
-Stores cyber-safety queries submitted by community members:
-* `id` (VARCHAR(64), Primary Key) &rarr; Formatted Reference ID (e.g. `CSH-2026-1042`)
-* `user_id` (INTEGER, Foreign Key referencing `users.id`)
-* `category` (VARCHAR(128)) &rarr; One of 10 cyber safety categories
-* `question` (TEXT) &rarr; Description of the suspicious incident
-* `status` (VARCHAR(32)) &rarr; Either `'Pending'` or `'Answered'`
-* `response` (TEXT, Nullable) &rarr; Verified guidance provided by helpdesk volunteers
-* `created_at` (DATETIME) &rarr; Timestamp of query submission
-* `updated_at` (DATETIME) &rarr; Timestamp of helpdesk guidance update
+-- Questions Table
+CREATE TABLE IF NOT EXISTS questions (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category VARCHAR(128) NOT NULL,
+  question TEXT NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'Pending',
+  response TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
 
 ### Strict User Isolation
-The backend strictly filters questions using:
-```python
-db.query(Question).filter(Question.user_id == current_user.id).all()
+Each user can only access their own questions:
+```sql
+SELECT * FROM questions WHERE user_id = $1 ORDER BY created_at DESC;
 ```
-This guarantees community members can only view their own questions.
-
----
-
-## 🌐 How Frontend Communicates with Backend
-
-The React frontend utilizes standard REST API calls via `fetch` configured in `src/services/api.ts`:
-
-* **`GET /auth/me`**: Fetches the authenticated user's profile info.
-* **`GET /api/dashboard/stats`**: Retrieves user submission metrics (total, pending, answered) and recent questions.
-* **`POST /api/questions`**: Submits a new question with category and text payload. Returns generated Reference ID.
-* **`GET /api/questions`**: Returns all questions submitted by the active user.
-* **`GET /api/questions/{id}`**: Returns single question details (verifying ownership).
-* **`POST /api/questions/{id}/respond`**: Allows helpdesk volunteers/evaluators during the viva demo to post guidance and mark a query as Answered.
-
----
-
-## 🎓 Viva / College Project Presentation Tips
-
-1. **Highlight the Community Need**:
-   Explain how the rapid rise of UPI payment fraud and phishing attacks targets non-technical citizens and elders.
-2. **Demonstrate Question Isolation**:
-   Show that when User A logs in, they only see User A's questions. Switching to User B displays User B's questions.
-3. **Showcase the Volunteer Response Mechanism**:
-   Click the **"Answer as Helpdesk Volunteer (Demo)"** button on any pending question during the demonstration to show examiners how advice is published and the status updates in real time from **Pending** to **Answered**.
-4. **Emphasize Security Best Practices**:
-   * No passwords stored in database (handled via Google OAuth 2.0).
-   * Environment variables keep secrets out of Git.
-   * Input validation handled by Pydantic.
-   * User privacy protected.
 
 ---
 

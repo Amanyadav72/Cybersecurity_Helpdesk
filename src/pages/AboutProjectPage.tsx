@@ -185,7 +185,7 @@ export const AboutProjectPage: React.FC = () => {
               <span>Database</span>
             </div>
             <p className="text-xs text-slate-300">
-              SQLite relational database using SQLAlchemy ORM (Users & Questions tables).
+              Neon PostgreSQL serverless relational database with connection pooling (Users & Questions tables).
             </p>
           </div>
 

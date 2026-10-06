@@ -63,6 +63,21 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
   return response.json();
 }
 
+export interface SystemStatus {
+  neon_database: {
+    connected: boolean;
+    configured: boolean;
+    provider: string;
+    env_key: string;
+  };
+  google_oauth: {
+    configured: boolean;
+    client_id_set: boolean;
+    client_secret_set: boolean;
+    client_id_prefix: string;
+  };
+}
+
 export const api = {
   // Check active user session
   async checkAuth(): Promise<User | null> {
@@ -78,16 +93,44 @@ export const api = {
     }
   },
 
-  // Initiate real Google OAuth flow
+  // Initiate actual Google OAuth 2.0 flow
   initiateGoogleLogin(): void {
     window.location.href = '/auth/google/login';
   },
 
-  // Demo Google Login for testing and viva presentation
-  async demoLogin(data: { email: string; name: string; picture?: string }): Promise<{ token: string; user: User }> {
-    const res = await apiRequest<{ token: string; user: User }>('/auth/demo-login', {
+  // Authenticate via Google ID Token (Google Identity Services / One-Tap)
+  async loginWithGoogleToken(credential: string): Promise<{ token: string; user: User }> {
+    const res = await apiRequest<{ token: string; user: User }>('/auth/google/token', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ credential }),
+    });
+    setStoredAuth(res.token, res.user);
+    return res;
+  },
+
+  // Get status of Neon PostgreSQL and Google OAuth
+  async getSystemStatus(): Promise<SystemStatus> {
+    return apiRequest<SystemStatus>('/api/system/status');
+  },
+
+  // Test live connection to Neon PostgreSQL
+  async testNeonDatabase(): Promise<any> {
+    return apiRequest<any>('/api/system/test-db');
+  },
+
+  // Dynamically configure Google OAuth credentials
+  async configureGoogleKeys(client_id: string, client_secret: string): Promise<any> {
+    return apiRequest<any>('/api/system/configure-google', {
+      method: 'POST',
+      body: JSON.stringify({ client_id, client_secret }),
+    });
+  },
+
+  // Direct login for testing Google-authenticated user directly in Neon DB
+  async testGoogleUserLogin(email: string, name: string): Promise<{ token: string; user: User }> {
+    const res = await apiRequest<{ token: string; user: User; message: string }>('/auth/test-google-login', {
+      method: 'POST',
+      body: JSON.stringify({ email, name }),
     });
     setStoredAuth(res.token, res.user);
     return res;
@@ -127,7 +170,7 @@ export const api = {
     return apiRequest<Question>(`/api/questions/${id}`);
   },
 
-  // Volunteer/Demo reply to question
+  // Volunteer reply to question
   async respondToQuestion(id: string, response: string): Promise<Question> {
     return apiRequest<Question>(`/api/questions/${id}/respond`, {
       method: 'POST',
