@@ -691,10 +691,54 @@ app.post('/api/questions/:id/respond', async (req, res) => {
 // --------------------------------------------------------------------------
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-    });
+    const distPath = path.join(__dirname, 'dist');
+    const indexHtmlPath = path.join(distPath, 'index.html');
+
+    // If dist/index.html does not exist, attempt to build on the fly
+    if (!fs.existsSync(indexHtmlPath)) {
+      console.warn(`⚠️ Warning: ${indexHtmlPath} not found. Attempting on-the-fly Vite build...`);
+      try {
+        const { execSync } = await import('child_process');
+        execSync('npx vite build', { stdio: 'inherit' });
+        console.log('✅ Vite build completed successfully on server start.');
+      } catch (err: any) {
+        console.error('❌ Failed on-the-fly Vite build:', err?.message || err);
+      }
+    }
+
+    if (fs.existsSync(indexHtmlPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (_req, res) => {
+        res.sendFile(indexHtmlPath);
+      });
+    } else {
+      console.error(`🚨 Fatal: ${indexHtmlPath} is still missing.`);
+      app.get('*', (_req, res) => {
+        res.status(500).send(`
+          <!DOCTYPE html>
+          <html>
+            <head><title>Build Missing</title></head>
+            <body style="font-family:system-ui,-apple-system,sans-serif;padding:50px 20px;background:#0f172a;color:#f8fafc;text-align:center;">
+              <h1 style="color:#ef4444;">Frontend Build Not Found</h1>
+              <p style="font-size:18px;max-width:600px;margin:20px auto;color:#94a3b8;">
+                The file <code>dist/index.html</code> was not created during deployment.
+              </p>
+              <div style="background:#1e293b;padding:20px;border-radius:8px;display:inline-block;text-align:left;margin-top:10px;">
+                <p style="margin:0 0 10px 0;font-weight:bold;color:#38bdf8;">How to fix on Render:</p>
+                <ol style="margin:0;padding-left:20px;line-height:1.8;">
+                  <li>Open your <strong>Render Dashboard</strong> and select this service.</li>
+                  <li>Click on <strong>Settings</strong> in the left menu.</li>
+                  <li>Scroll to <strong>Build Command</strong> and set it to: <br/>
+                    <code style="background:#0f172a;padding:4px 8px;border-radius:4px;color:#4ade80;">npm install && npm run build</code>
+                  </li>
+                  <li>Click <strong>Save Changes</strong> and then <strong>Manual Deploy &gt; Clear build cache &amp; deploy</strong>.</li>
+                </ol>
+              </div>
+            </body>
+          </html>
+        `);
+      });
+    }
   } else {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
