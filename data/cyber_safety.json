@@ -1,0 +1,52 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "google_id": "google-109482736152431",
+      "name": "Aman Yadav",
+      "email": "amanyadavabhay@gmail.com",
+      "profile_picture": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=160&auto=format&fit=crop&q=80",
+      "created_at": "2026-10-01T10:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "google_id": "google-109482736152432",
+      "name": "Pooja Sharma",
+      "email": "pooja.sharma@community.org",
+      "profile_picture": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=160&auto=format&fit=crop&q=80",
+      "created_at": "2026-10-02T11:30:00.000Z"
+    }
+  ],
+  "questions": [
+    {
+      "id": "CSH-2026-1042",
+      "user_id": 1,
+      "category": "UPI & Payment Safety",
+      "question": "Someone claiming to be a courier delivery executive called and sent me a QR code on WhatsApp, asking me to scan it and enter my UPI PIN to receive a parcel refund of ₹350. Is this safe?",
+      "status": "Answered",
+      "response": "⚠️ NEVER scan a QR code or enter your UPI PIN to receive money! A UPI PIN is ONLY entered when paying/deducting money from your account, never to receive refunds. Block that phone number immediately and report it to the National Cyber Helpline (1930) or your bank if any deductions occurred.",
+      "created_at": "2026-10-02T14:15:00.000Z",
+      "updated_at": "2026-10-02T15:45:00.000Z"
+    },
+    {
+      "id": "CSH-2026-1088",
+      "user_id": 1,
+      "category": "Phishing",
+      "question": "I received a message saying \"Dear Customer, your electricity bill is unpaid. Electricity will be disconnected tonight. Call officer at 98xxxxxx or download VidyutBill.apk\". Should I open it?",
+      "status": "Answered",
+      "response": "⚠️ DO NOT download the .apk file or call that number. This is a very common electricity disconnection phishing scam. Fraudsters use APK files to install malware that reads your OTPs and steals banking credentials. Official power distribution companies never distribute APK links over SMS. Always pay through your official power utility portal or verified banking app.",
+      "created_at": "2026-10-03T09:20:00.000Z",
+      "updated_at": "2026-10-03T11:00:00.000Z"
+    },
+    {
+      "id": "CSH-2026-1124",
+      "user_id": 1,
+      "category": "Social Media Safety",
+      "question": "My friend's Instagram account messaged me asking for an emergency loan via UPI, but the tone sounds completely different from how they usually talk. How can I verify before sending money?",
+      "status": "Pending",
+      "response": null,
+      "created_at": "2026-10-05T16:40:00.000Z",
+      "updated_at": "2026-10-05T16:40:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Community Cyber Safety Helpdesk",
+  "description": "A clean, beginner-friendly web application for community members to ask cyber safety questions, get verified guidance, and learn digital safety tips (B.Sc. IT Semester V Community Engagement Project).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
