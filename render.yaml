@@ -8,6 +8,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: APP_URL
+        value: https://cybersecurity-helpdesk.onrender.com
+      - key: FRONTEND_URL
+        value: https://cybersecurity-helpdesk.onrender.com
       - key: NEON_DATABASE_URL
         sync: false
       - key: GOOGLE_CLIENT_ID

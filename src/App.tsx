@@ -21,8 +21,29 @@ export default function App() {
 
   // Check initial authentication, system status, and URL params on load
   useEffect(() => {
-    // Fetch live infrastructure status (Neon DB & Google OAuth)
+    // Fetch live infrastructure status
     api.getSystemStatus().then(setSystemStatus).catch(() => {});
+
+    // Listen for OAuth success or error messages from popup window
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
+        const { token, user: authedUser } = event.data;
+        if (token && authedUser) {
+          setStoredAuth(token, authedUser);
+          setUser(authedUser);
+          setCurrentPage('dashboard');
+          setIsSignInOpen(false);
+          setNotification({
+            message: `Welcome, ${authedUser.name}! Signed in with Google.`,
+            type: 'success',
+          });
+        }
+      } else if (event.data?.type === 'GOOGLE_AUTH_ERROR') {
+        const msg = decodeURIComponent(event.data.error || 'Authentication was cancelled.');
+        setNotification({ message: msg, type: 'error' });
+      }
+    };
+    window.addEventListener('message', handleOAuthMessage);
 
     const searchParams = new URLSearchParams(window.location.search);
     const token = searchParams.get('token');
@@ -31,30 +52,19 @@ export default function App() {
     if (authError) {
       let friendlyError = decodeURIComponent(authError);
       if (authError === 'google_credentials_missing') {
-        friendlyError = 'Please sign in with your Google account using the Google prompt.';
-        setIsSignInOpen(true);
+        friendlyError = 'Google OAuth credentials are being initialized. Please try signing in again.';
       }
       setNotification({ message: friendlyError, type: 'error' });
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (token) {
       // Returned from actual Google OAuth callback
-      try {
-        const decoded = JSON.parse(atob(token));
-        const dummyUser: User = {
-          id: decoded.sub || 1,
-          google_id: 'google-oauth-' + (decoded.sub || 'user'),
-          name: decoded.name || 'Community Member',
-          email: decoded.email || 'user@gmail.com',
-          profile_picture: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=160&auto=format&fit=crop&q=80',
-          created_at: new Date().toISOString(),
-        };
-        setStoredAuth(token, dummyUser);
-        setUser(dummyUser);
-        setCurrentPage('dashboard');
-        setNotification({ message: `Welcome! Signed in via Google OAuth.`, type: 'success' });
-      } catch {
-        // Fallback
-      }
+      api.checkAuth().then((authenticatedUser) => {
+        if (authenticatedUser) {
+          setUser(authenticatedUser);
+          setCurrentPage('dashboard');
+          setNotification({ message: `Welcome, ${authenticatedUser.name}! Signed in via Google OAuth.`, type: 'success' });
+        }
+      });
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
@@ -64,10 +74,15 @@ export default function App() {
         setUser(authenticatedUser);
       }
     });
+
+    return () => {
+      window.removeEventListener('message', handleOAuthMessage);
+    };
   }, []);
 
   const handleOpenSignIn = () => {
-    setIsSignInOpen(true);
+    // Directly initiate Google OAuth
+    api.initiateGoogleLogin();
   };
 
   const handleNavigate = (page: string) => {

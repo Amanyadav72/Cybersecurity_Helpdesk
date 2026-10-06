@@ -94,7 +94,29 @@ export const api = {
   },
 
   // Initiate actual Google OAuth 2.0 flow
-  initiateGoogleLogin(): void {
+  async initiateGoogleLogin(): Promise<void> {
+    try {
+      const origin = window.location.origin;
+      const res = await fetch(`/api/auth/google-url?origin=${encodeURIComponent(origin)}`);
+      if (res.ok) {
+        const { url } = await res.json();
+        const isInIframe = window.self !== window.top;
+        if (isInIframe) {
+          const authWindow = window.open(
+            url,
+            'google_oauth_popup',
+            'width=550,height=650,menubar=no,toolbar=no'
+          );
+          if (authWindow) {
+            return;
+          }
+        }
+        window.location.href = url;
+        return;
+      }
+    } catch (err) {
+      console.error('Error initiating Google OAuth:', err);
+    }
     window.location.href = '/auth/google/login';
   },
 

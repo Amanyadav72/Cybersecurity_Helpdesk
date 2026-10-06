@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import pg from 'pg';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
@@ -19,12 +19,22 @@ app.use(express.json());
 // --------------------------------------------------------------------------
 // Neon PostgreSQL Database Configuration
 // --------------------------------------------------------------------------
-const neonDbUrl =
-  process.env.NEON_DATABASE_URL ||
-  process.env.DATABASE_URL ||
-  (process.env.PGHOST
-    ? `postgresql://${process.env.PGUSER || 'neondb_owner'}:${encodeURIComponent(process.env.PGPASSWORD || '')}@${process.env.PGHOST}/${process.env.PGDATABASE || 'neondb'}?sslmode=require`
-    : '');
+function getValidPostgresUrl(): string {
+  const envUrl = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL || '';
+  if (envUrl.startsWith('postgresql://') || envUrl.startsWith('postgres://')) {
+    return envUrl;
+  }
+  const host = process.env.PGHOST || (envUrl.includes('.') ? envUrl : '');
+  const user = process.env.PGUSER || 'neondb_owner';
+  const password = process.env.PGPASSWORD || '';
+  const database = process.env.PGDATABASE || 'neondb';
+  if (host && password) {
+    return `postgresql://${user}:${encodeURIComponent(password)}@${host}/${database}?sslmode=require`;
+  }
+  return '';
+}
+
+const neonDbUrl = getValidPostgresUrl();
 let dbPool: pg.Pool | null = null;
 let isNeonConnected = false;
 
@@ -84,17 +94,14 @@ function saveLocalDB(data: DatabaseSchema) {
 
 // Initialize Neon PostgreSQL tables
 async function initNeonDatabase() {
-  const host = process.env.PGHOST || 'ep-withered-paper-b4mgsq8e-pooler.c-6.us-east-2.aws.neon.tech';
+  const host = process.env.PGHOST || '';
   const database = process.env.PGDATABASE || 'neondb';
   const user = process.env.PGUSER || 'neondb_owner';
-  const password = process.env.PGPASSWORD || 'npg_z6FD3vbHEQdZ';
+  const password = process.env.PGPASSWORD || '';
 
   try {
     dbPool = new Pool({
-      host,
-      database,
-      user,
-      password,
+      ...(neonDbUrl ? { connectionString: neonDbUrl } : { host, database, user, password }),
       ssl: { rejectUnauthorized: false }, // Required for Neon serverless PostgreSQL
       max: 10,
       connectionTimeoutMillis: 10000,
@@ -394,15 +401,19 @@ app.post('/api/system/configure-google', (req, res) => {
   });
 });
 
-// Direct Google OAuth Test Session (Logs in Aman Yadav into Neon DB)
+// Direct Google Authentication Session Endpoint (Neon PostgreSQL persistence)
 app.post('/auth/test-google-login', async (req, res) => {
-  const { email = 'amanyadavabhay@gmail.com', name = 'Aman Yadav' } = req.body;
+  const { email, name } = req.body;
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ detail: 'Valid email is required.' });
+  }
+  const userName = name || email.split('@')[0];
   try {
     const user = await upsertGoogleUser({
       google_id: `google-user-${Date.now()}`,
-      name,
+      name: userName,
       email,
-      profile_picture: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=160&auto=format&fit=crop&q=80',
+      profile_picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=2563eb&color=fff&size=160`,
     });
 
     const token = generateSessionToken(user);
@@ -456,25 +467,63 @@ app.post('/auth/google-signin', async (req, res) => {
 // Real Google OAuth 2.0 Endpoints
 // --------------------------------------------------------------------------
 
-// 1. Initiate Google OAuth Login Redirect
-app.get('/auth/google/login', (req, res) => {
-  const googleClientId = process.env.GOOGLE_CLIENT_ID;
-  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+// 0. API Endpoint to retrieve the Google OAuth authorization URL (for popup / direct redirect)
+app.get(['/api/auth/google-url', '/auth/google/url'], (req, res) => {
+  const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
 
   if (!googleClientId || !googleClientSecret) {
-    return res.redirect('/?auth_error=google_credentials_missing');
+    return res.status(500).json({ error: 'Google OAuth credentials not configured' });
   }
 
-  // Determine external URL for callback
-  const host = req.get('host') || 'localhost:3000';
-  const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-  const redirectUri = `${protocol}://${host}/auth/google/callback`;
+  const rawOrigin = (req.query.origin ? String(req.query.origin) : null)
+    || process.env.RENDER_EXTERNAL_URL
+    || process.env.APP_URL
+    || `${req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+  
+  const origin = rawOrigin.replace(/\/$/, '');
+  const redirectUri = `${origin}/auth/google/callback`;
+  const state = Buffer.from(JSON.stringify({ redirect_uri: redirectUri })).toString('base64');
 
   const params = new URLSearchParams({
     client_id: googleClientId,
     response_type: 'code',
     scope: 'openid email profile',
     redirect_uri: redirectUri,
+    state,
+    access_type: 'offline',
+    prompt: 'select_account',
+  });
+
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  res.json({ url, redirect_uri: redirectUri, client_id: googleClientId });
+});
+
+// 1. Initiate Google OAuth Login Redirect
+app.get('/auth/google/login', (req, res) => {
+  const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
+
+  if (!googleClientId || !googleClientSecret) {
+    return res.redirect('/?auth_error=google_credentials_missing');
+  }
+
+  // Determine external URL for callback
+  const rawOrigin = (req.query.origin ? String(req.query.origin) : null)
+    || process.env.RENDER_EXTERNAL_URL
+    || process.env.APP_URL
+    || `${req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+  
+  const origin = rawOrigin.replace(/\/$/, '');
+  const redirectUri = `${origin}/auth/google/callback`;
+  const state = Buffer.from(JSON.stringify({ redirect_uri: redirectUri })).toString('base64');
+
+  const params = new URLSearchParams({
+    client_id: googleClientId,
+    response_type: 'code',
+    scope: 'openid email profile',
+    redirect_uri: redirectUri,
+    state,
     access_type: 'offline',
     prompt: 'select_account',
   });
@@ -483,25 +532,56 @@ app.get('/auth/google/login', (req, res) => {
 });
 
 // 2. Google OAuth Callback (Exchanges Code -> Token -> User Profile -> Neon PostgreSQL)
-app.get('/auth/google/callback', async (req, res) => {
-  const { code, error } = req.query;
+app.get(['/auth/google/callback', '/auth/google/callback/'], async (req, res) => {
+  const { code, error, state } = req.query;
 
   if (error || !code) {
     const errorMsg = encodeURIComponent(String(error || 'Google authentication was cancelled.'));
-    return res.redirect(`/?auth_error=${errorMsg}`);
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Authentication Error</title></head>
+        <body style="font-family:sans-serif;padding:30px;text-align:center;">
+          <p style="color:#ef4444;">Authentication cancelled or encountered an error.</p>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ type: 'GOOGLE_AUTH_ERROR', error: '${errorMsg}' }, '*');
+              setTimeout(() => window.close(), 1500);
+            } else {
+              window.location.href = '/?auth_error=${errorMsg}';
+            }
+          </script>
+        </body>
+      </html>
+    `);
   }
 
-  const googleClientId = process.env.GOOGLE_CLIENT_ID;
-  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
 
   if (!googleClientId || !googleClientSecret) {
     return res.redirect('/?auth_error=google_credentials_missing');
   }
 
   try {
-    const host = req.get('host') || 'localhost:3000';
-    const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-    const redirectUri = `${protocol}://${host}/auth/google/callback`;
+    // Resolve matching redirectUri from state
+    let redirectUri = '';
+    if (state) {
+      try {
+        const decodedState = JSON.parse(Buffer.from(String(state), 'base64').toString('utf-8'));
+        if (decodedState.redirect_uri) {
+          redirectUri = decodedState.redirect_uri;
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    if (!redirectUri) {
+      const rawOrigin = process.env.APP_URL
+        || `${req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.get('host')}`;
+      redirectUri = `${rawOrigin.replace(/\/$/, '')}/auth/google/callback`;
+    }
 
     // Exchange authorization code with Google token endpoint
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -546,14 +626,49 @@ app.get('/auth/google/callback', async (req, res) => {
       google_id,
       name: name || email.split('@')[0],
       email,
-      profile_picture: picture || '',
+      profile_picture: picture || `https://ui-avatars.com/api/?name=${encodeURIComponent(name || email)}&background=2563eb&color=fff&size=160`,
     });
 
     // Generate JWT token
     const sessionToken = generateSessionToken(user);
 
-    // Redirect to frontend dashboard with token
-    res.redirect(`/dashboard?token=${sessionToken}`);
+    // Return HTML that posts message to opener or redirects
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Google Authentication</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
+            .card { background: #1e293b; padding: 32px; border-radius: 16px; text-align: center; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+            .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #3b82f6; border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            h2 { margin: 0 0 8px 0; font-size: 18px; color: #fff; }
+            p { margin: 0; font-size: 14px; color: #94a3b8; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="spinner"></div>
+            <h2>Google Authentication Successful</h2>
+            <p>Signing in to Community Cyber Safety Helpdesk...</p>
+          </div>
+          <script>
+            const authPayload = {
+              type: 'GOOGLE_AUTH_SUCCESS',
+              token: ${JSON.stringify(sessionToken)},
+              user: ${JSON.stringify(user)}
+            };
+            if (window.opener) {
+              window.opener.postMessage(authPayload, '*');
+              window.close();
+            } else {
+              window.location.href = '/dashboard?token=' + encodeURIComponent(${JSON.stringify(sessionToken)});
+            }
+          </script>
+        </body>
+      </html>
+    `);
   } catch (err: any) {
     console.error('Error handling Google callback:', err);
     res.redirect(`/?auth_error=${encodeURIComponent(err.message || 'Authentication error')}`);
